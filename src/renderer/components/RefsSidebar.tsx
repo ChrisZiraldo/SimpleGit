@@ -786,6 +786,25 @@ export function RefsSidebar(): JSX.Element {
           {/* Working copy / WIP node */}
           <div
             onClick={() => setSelectedCommit(null)}
+            onContextMenu={(e) => {
+              if (wipCount === 0) return
+              e.preventDefault()
+              e.stopPropagation()
+              setMenu({
+                x: e.clientX,
+                y: e.clientY,
+                items: [
+                  {
+                    label: `Discard all ${wipCount} change${wipCount === 1 ? '' : 's'}…`,
+                    danger: true,
+                    onClick: () =>
+                      runWithBusy('Discard all changes', () =>
+                        window.git.branch.resetHard(activeRepo!.path)
+                      )
+                  }
+                ]
+              })
+            }}
             className={
               'cursor-pointer px-3 py-2 border-b border-line flex items-center justify-between ' +
               (selectedCommit === null ? 'bg-accent/15' : 'hover:bg-bg-panel')

@@ -31,7 +31,7 @@ export async function startRebase(
   const scriptContent = `#!/bin/sh\ncat > "$1" << 'SIMPLEGIT_TODO'\n${todoContent}\nSIMPLEGIT_TODO\n`
   writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
-  return runGitVoid(['rebase', '-i', ontoSha], {
+  return runGitVoid(['rebase', '--no-gpg-sign', '-i', ontoSha], {
     cwd,
     env: {
       ...process.env,
@@ -67,7 +67,7 @@ export async function getRebaseStatus(cwd: string): Promise<Result<RebaseStatus>
 }
 
 export async function rebaseContinue(cwd: string): Promise<Result<true>> {
-  return runGitVoid(['rebase', '--continue'], {
+  return runGitVoid(['rebase', '--continue', '--no-gpg-sign'], {
     cwd,
     env: { ...process.env, GIT_EDITOR: 'true' }
   })
@@ -79,5 +79,5 @@ export async function rebaseAbort(cwd: string): Promise<Result<true>> {
 
 /** Simple non-interactive rebase of the current branch onto another branch. */
 export async function rebaseOnto(cwd: string, branch: string): Promise<Result<true>> {
-  return runGitVoid(['rebase', branch], { cwd })
+  return runGitVoid(['rebase', '--no-gpg-sign', branch], { cwd })
 }

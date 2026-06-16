@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRepo } from '../store/useRepo'
 import type { FileChangeType, FileEntry } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
@@ -98,6 +98,12 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null)
   const [conflictFile, setConflictFile] = useState<string | null>(null)
 
+  // Multi-select: keys are "path:staged" strings
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set())
+  const lastClickedRef = useRef<{ key: string; section: 'unstaged' | 'staged' } | null>(null)
+
+  const multiKey = (path: string, staged: boolean): string => `${path}:${staged}`
+
   // Listen for conflict-badge click from the metro map
   useEffect(() => {
     const handler = (): void => {
@@ -152,6 +158,7 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
 
   const select = (path: string, staged: boolean): void => {
     setPendingDiscard(null)
+    setMultiSelected(new Set())
     setSelectedFile({ path, staged })
   }
 
@@ -160,9 +167,114 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
 
   const discardKey = (path: string, staged: boolean): string => `${path}:${staged}`
 
-  const openFileContextMenu = (e: React.MouseEvent, entry: FileEntry): void => {
+  const discardMultiple = useCallback(async (entries: FileEntry[]): Promise<void> => {
+    for (const entry of entries) {
+      const res = await window.git.stage.discard(activeRepo!.path, entry.path, entry.staged, entry.changeType)
+      if (!res.ok) {
+        pushToast('error', `Discard failed for ${entry.path}: ${res.stderr}`)
+        return
+      }
+    }
+    pushToast('info', `Discarded ${entries.length} file${entries.length === 1 ? '' : 's'}`)
+    setMultiSelected(new Set())
+    if (selectedFile && entries.some((e) => e.path === selectedFile.path)) setSelectedFile(null)
+    await onRefresh()
+  }, [activeRepo, pushToast, selectedFile, setSelectedFile, onRefresh])
+
+  const handleFileClick = useCallback((
+    e: React.MouseEvent,
+    entry: FileEntry,
+    sectionEntries: FileEntry[],
+    section: 'unstaged' | 'staged'
+  ): void => {
+    const key = multiKey(entry.path, entry.staged)
+    const metaOrCtrl = e.metaKey || e.ctrlKey
+
+    if (e.shiftKey && lastClickedRef.current?.section === section) {
+      // Range-select from anchor to here — does not change the anchor
+      const sectionKeys = sectionEntries.map((f) => multiKey(f.path, f.staged))
+      const anchorIdx = sectionKeys.indexOf(lastClickedRef.current.key)
+      const curIdx = sectionKeys.indexOf(key)
+      if (anchorIdx !== -1 && curIdx !== -1) {
+        const [from, to] = [Math.min(anchorIdx, curIdx), Math.max(anchorIdx, curIdx)]
+        setMultiSelected(new Set(sectionKeys.slice(from, to + 1)))
+        return
+      }
+    }
+
+    if (metaOrCtrl) {
+      // Toggle this file in/out of the selection; update anchor but keep others.
+      // If starting fresh (nothing multi-selected yet), seed the set with the
+      // currently viewed file so it stays visually included in the selection.
+      lastClickedRef.current = { key, section }
+      setMultiSelected((prev) => {
+        const next = new Set(prev)
+        if (next.size === 0 && selectedFile) {
+          next.add(multiKey(selectedFile.path, selectedFile.staged))
+        }
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+      return
+    }
+
+    // Plain click: select only this file, clear any existing multi-select, open diff
+    lastClickedRef.current = { key, section }
+    setMultiSelected(new Set())
+    select(entry.path, entry.staged)
+  }, [select])
+
+  const openFileContextMenu = (e: React.MouseEvent, entry: FileEntry, allEntries: FileEntry[]): void => {
     e.preventDefault()
     e.stopPropagation()
+
+    // If this file is part of a multi-selection (2+ files), show a bulk menu
+    const key = multiKey(entry.path, entry.staged)
+    if (multiSelected.size > 1 && multiSelected.has(key)) {
+      const selected = allEntries.filter((f) => multiSelected.has(multiKey(f.path, f.staged)))
+      const n = selected.length
+      const isStaged = entry.staged
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: `${n} files selected`,
+            disabled: true,
+            onClick: () => {}
+          },
+          { type: 'separator' },
+          isStaged
+            ? {
+                label: `Unstage ${n} file${n === 1 ? '' : 's'}`,
+                onClick: () => {
+                  void unstage(selected.map((f) => f.path))
+                  setMultiSelected(new Set())
+                }
+              }
+            : {
+                label: `Stage ${n} file${n === 1 ? '' : 's'}`,
+                onClick: () => {
+                  void stage(selected.map((f) => f.path))
+                  setMultiSelected(new Set())
+                }
+              },
+          {
+            label: `Discard ${n} file${n === 1 ? '' : 's'}`,
+            danger: true,
+            onClick: () => void discardMultiple(selected)
+          },
+          { type: 'separator' },
+          {
+            label: 'Clear selection',
+            onClick: () => setMultiSelected(new Set())
+          }
+        ]
+      })
+      return
+    }
+
     const fullPath = `${activeRepo.path}/${entry.path}`
     const items: MenuItem[] = [
       entry.staged
@@ -314,26 +426,43 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
               key={`c-${f.path}`}
               entry={f}
               selected={isSelected(f.path, false)}
+              multiSelected={false}
               onClick={() => setConflictFile(f.path)}
               actionLabel="Stage"
               onAction={() => stage([f.path])}
               confirming={pendingDiscard === discardKey(f.path, false)}
               onDiscard={() => discard(f.path, false, f.changeType)}
-              onContextMenu={(e) => openFileContextMenu(e, f)}
+              onContextMenu={(e) => openFileContextMenu(e, f, conflicted)}
             />
           ))}
         </Section>
       )}
 
-      <Section
-        title={`Changes (${unstagedAll.length})`}
-        actionLabel={unstagedAll.length > 0 ? 'Stage all' : undefined}
-        onAction={
-          unstagedAll.length > 0
-            ? () => stage(unstagedAll.map((f) => f.path))
-            : undefined
-        }
-      >
+      {(() => {
+        const selectedUnstaged = unstagedAll.filter((f) => multiSelected.has(multiKey(f.path, false)))
+        return (
+          <Section
+            title={`Changes (${unstagedAll.length})`}
+            actionLabel={unstagedAll.length > 0 ? 'Stage all' : undefined}
+            onAction={
+              unstagedAll.length > 0
+                ? () => stage(unstagedAll.map((f) => f.path))
+                : undefined
+            }
+            headerExtra={
+              selectedUnstaged.length > 1 ? (
+                <button
+                  onClick={() => {
+                    void stage(selectedUnstaged.map((f) => f.path))
+                    setMultiSelected(new Set())
+                  }}
+                  className="text-xs text-accent hover:text-accent-hover"
+                >
+                  Stage selected ({selectedUnstaged.length})
+                </button>
+              ) : undefined
+            }
+          >
         {unstagedAll.length === 0 ? (
           <Empty text="Working tree clean" />
         ) : viewMode === 'tree' ? (
@@ -345,7 +474,7 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
             onAction={(e) => stage([e.path])}
             isConfirming={(e) => pendingDiscard === discardKey(e.path, false)}
             onDiscard={(e) => discard(e.path, false, e.changeType)}
-            onContextMenu={(ev, e) => openFileContextMenu(ev, e)}
+            onContextMenu={(ev, e) => openFileContextMenu(ev, e, unstagedAll)}
           />
         ) : (
           unstagedAll.map((f) => (
@@ -353,26 +482,45 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
               key={`u-${f.path}`}
               entry={f}
               selected={isSelected(f.path, false)}
-              onClick={() => select(f.path, false)}
+              multiSelected={multiSelected.has(multiKey(f.path, false))}
+              onClick={(e) => handleFileClick(e, f, unstagedAll, 'unstaged')}
               actionLabel="Stage"
               onAction={() => stage([f.path])}
               confirming={pendingDiscard === discardKey(f.path, false)}
               onDiscard={() => discard(f.path, false, f.changeType)}
-              onContextMenu={(e) => openFileContextMenu(e, f)}
+              onContextMenu={(e) => openFileContextMenu(e, f, unstagedAll)}
             />
           ))
         )}
-      </Section>
+          </Section>
+        )
+      })()}
 
-      <Section
-        title={`Staged (${stagedAll.length})`}
-        actionLabel={stagedAll.length > 0 ? 'Unstage all' : undefined}
-        onAction={
-          stagedAll.length > 0
-            ? () => unstage(stagedAll.map((f) => f.path))
-            : undefined
-        }
-      >
+      {(() => {
+        const selectedStaged = stagedAll.filter((f) => multiSelected.has(multiKey(f.path, true)))
+        return (
+          <Section
+            title={`Staged (${stagedAll.length})`}
+            actionLabel={stagedAll.length > 0 ? 'Unstage all' : undefined}
+            onAction={
+              stagedAll.length > 0
+                ? () => unstage(stagedAll.map((f) => f.path))
+                : undefined
+            }
+            headerExtra={
+              selectedStaged.length > 1 ? (
+                <button
+                  onClick={() => {
+                    void unstage(selectedStaged.map((f) => f.path))
+                    setMultiSelected(new Set())
+                  }}
+                  className="text-xs text-accent hover:text-accent-hover"
+                >
+                  Unstage selected ({selectedStaged.length})
+                </button>
+              ) : undefined
+            }
+          >
         {stagedAll.length === 0 ? (
           <Empty text="No staged changes" />
         ) : viewMode === 'tree' ? (
@@ -384,7 +532,7 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
             onAction={(e) => unstage([e.path])}
             isConfirming={(e) => pendingDiscard === discardKey(e.path, true)}
             onDiscard={(e) => discard(e.path, true, e.changeType)}
-            onContextMenu={(ev, e) => openFileContextMenu(ev, e)}
+            onContextMenu={(ev, e) => openFileContextMenu(ev, e, stagedAll)}
           />
         ) : (
           stagedAll.map((f) => (
@@ -392,16 +540,19 @@ export function StatusPanel({ onRefresh }: Props): JSX.Element {
               key={`s-${f.path}`}
               entry={f}
               selected={isSelected(f.path, true)}
-              onClick={() => select(f.path, true)}
+              multiSelected={multiSelected.has(multiKey(f.path, true))}
+              onClick={(e) => handleFileClick(e, f, stagedAll, 'staged')}
               actionLabel="Unstage"
               onAction={() => unstage([f.path])}
               confirming={pendingDiscard === discardKey(f.path, true)}
               onDiscard={() => discard(f.path, true, f.changeType)}
-              onContextMenu={(e) => openFileContextMenu(e, f)}
+              onContextMenu={(e) => openFileContextMenu(e, f, stagedAll)}
             />
           ))
         )}
-      </Section>
+          </Section>
+        )
+      })()}
 
       {ctxMenu && (
         <ContextMenu
@@ -456,7 +607,8 @@ function Section({ title, accent, actionLabel, onAction, headerExtra, children }
 interface FileRowProps {
   entry: FileEntry
   selected: boolean
-  onClick: () => void
+  multiSelected: boolean
+  onClick: (e: React.MouseEvent) => void
   actionLabel: string
   onAction: () => void
   confirming: boolean
@@ -467,6 +619,7 @@ interface FileRowProps {
 function FileRow({
   entry,
   selected,
+  multiSelected,
   onClick,
   actionLabel,
   onAction,
@@ -481,7 +634,7 @@ function FileRow({
       onContextMenu={onContextMenu}
       className={
         'group flex items-center px-3 py-1 text-sm cursor-pointer ' +
-        (selected ? 'bg-accent/20' : 'hover:bg-bg-panel')
+        (multiSelected ? 'bg-accent/30 ring-1 ring-inset ring-accent/50' : selected ? 'bg-accent/20' : 'hover:bg-bg-panel')
       }
       title={entry.path}
     >
