@@ -18,7 +18,6 @@ import {
   type MetroLayout
 } from './computeMetroLayout'
 import {
-  laneColor,
   laneOrBranchColor,
   laneCasing,
   laneStaleTint,
@@ -64,7 +63,6 @@ export function MetroMap(): JSX.Element {
   const commitQuery = useRepo((s) => s.commitQuery)
   const setCommitQuery = useRepo((s) => s.setCommitQuery)
   const setRebasePlan = useRepo((s) => s.setRebasePlan)
-  const rebasePlan = useRepo((s) => s.rebasePlan)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -97,7 +95,11 @@ export function MetroMap(): JSX.Element {
         ciFilter: metroFilters.ciStatus,
         ciByHash,
         author: metroFilters.author,
-        dateCutoffMs: dateRangeCutoff(metroFilters.dateRange)
+        dateCutoffMs: dateRangeCutoff(metroFilters.dateRange),
+        // Hint the layout so the lane graph is horizontally centered in the
+        // panel. Uses the last-known viewport width (CSS pixels at zoom=1)
+        // which is seeded on mount and updated on scroll/resize.
+        viewportWidth: viewport.clientWidth
       }),
     [
       graph,
@@ -108,7 +110,8 @@ export function MetroMap(): JSX.Element {
       metroFilters.ciStatus,
       metroFilters.author,
       metroFilters.dateRange,
-      ciByHash
+      ciByHash,
+      viewport.clientWidth
     ]
   )
 
@@ -640,21 +643,29 @@ export function MetroMap(): JSX.Element {
         ref={scrollRef}
         className="absolute inset-0 overflow-auto"
       >
+        {/* effectiveCanvasWidth ensures the content fills the viewport even
+            when the lane graph is narrower than the panel (e.g. single-branch
+            repos). The SVG and connector lines receive the same effective world
+            width so dotted label lines always reach the sticky commit labels. */}
+        {(() => {
+          const effectiveCanvasPx = Math.max(layout.width * zoom, viewport.clientWidth)
+          const effectiveCanvasWorld = effectiveCanvasPx / zoom
+          return (
         <div
           style={{
-            width: layout.width * zoom,
+            width: effectiveCanvasPx,
             height: Math.max(layout.height * zoom, 320),
             position: 'relative'
           }}
         >
           <svg
-            width={layout.width}
+            width={effectiveCanvasWorld}
             height={layout.height}
-            viewBox={`0 0 ${layout.width} ${layout.height}`}
+            viewBox={`0 0 ${effectiveCanvasWorld} ${layout.height}`}
             preserveAspectRatio="xMinYMin meet"
             className="block"
             style={{
-              width: layout.width * zoom,
+              width: effectiveCanvasPx,
               height: layout.height * zoom,
               // Layer the radial accent gradient over a faint 24x24 dot grid
               // so the dark canvas reads more like patterned paper than a
@@ -679,13 +690,13 @@ export function MetroMap(): JSX.Element {
                 obscure station dots or badges. Pill lines extend from x=0
                 to the station (the sticky pill sits over x=0 in the viewport).
                 Label dotted lines extend from the station all the way to the
-                SVG's right edge — the scroll container clips them exactly at
-                the viewport boundary where the sticky label lives, making
-                them appear to terminate at the label. */}
+                effective canvas right edge — the scroll container clips them
+                at the viewport boundary where the sticky label lives. */}
             <ConnectorLines
               layout={layout}
               highlight={isLaneHighlighted}
               selectedHash={selectedCommit}
+              canvasWidth={effectiveCanvasWorld}
             />
             <Trains layout={layout} refs={refs} />
 
@@ -925,6 +936,8 @@ export function MetroMap(): JSX.Element {
               })
           })()}
         </div>
+          )
+        })()}
       </div>
 
       {/* Compass + Legend overlay at top-left */}
@@ -1327,6 +1340,9 @@ interface ConnectorLinesProps {
   layout: MetroLayout
   highlight: (lane: number) => boolean
   selectedHash: string | null
+  /** Effective canvas width in world coords — may be wider than layout.width
+   *  when the viewport exceeds the natural lane+label area. */
+  canvasWidth?: number
 }
 
 /**
@@ -1342,16 +1358,16 @@ interface ConnectorLinesProps {
  * exactly where the sticky label lives. The line always appears to terminate
  * right at the label.
  */
-function ConnectorLines({ layout, highlight, selectedHash }: ConnectorLinesProps): JSX.Element {
+function ConnectorLines({ layout, highlight, selectedHash, canvasWidth }: ConnectorLinesProps): JSX.Element {
   const headHash = layout.headStation?.hash ?? null
   const { laneHeight, rightPad } = layout
-  // x2 for label lines: extend to near the SVG's right edge.
-  // For maps wider than the viewport the SVG is clipped at the viewport's
-  // right boundary — exactly where the CSS-sticky label lives — so the line
-  // visually terminates at the label with no JS needed. For narrower maps the
-  // label sits at its natural position inside the label area, which is also
-  // near this x.
-  const labelLineX2 = layout.width - rightPad - 8
+  // x2 for label lines: extend toward the sticky label, which lives at
+  // `right: COMMIT_LABEL_PAD` of the content div. The content div is sized to
+  // max(layout.width, viewport.clientWidth) so for narrow repos the label is
+  // further right than layout.width. We receive `canvasWidth` (world coords)
+  // for exactly this case, and fall back to layout.width when not provided.
+  const effectiveWidth = canvasWidth ?? layout.width
+  const labelLineX2 = effectiveWidth - rightPad - 8
   const els: JSX.Element[] = []
 
   // Map from lane → x of the newest (smallest row index) station on that lane.
@@ -1755,8 +1771,8 @@ function ConflictBadge({ layout, conflictCount, onClick }: ConflictBadgeProps): 
       pointerEvents={onClick ? 'all' : 'none'}
       onClick={onClick}
       cursor={onClick ? 'pointer' : undefined}
-      title={onClick ? 'Click to resolve conflicts' : undefined}
     >
+      {onClick && <title>Click to resolve conflicts</title>}
       <rect
         x={bx}
         y={by}

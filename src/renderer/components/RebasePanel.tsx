@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { GripVertical, Trash2, Combine, ChevronDown, X, Play, StopCircle } from 'lucide-react'
-import type { RebaseAction, RebasePlanEntry } from '@shared/types'
+import { GripVertical, Trash2, X, Play, StopCircle } from 'lucide-react'
+import type { RebaseAction } from '@shared/types'
 import { useRepo } from '../store/useRepo'
 
 interface Props {
@@ -11,16 +11,14 @@ const ACTION_COLORS: Record<RebaseAction, string> = {
   pick: '#3b82f6',
   squash: '#f59e0b',
   fixup: '#f97316',
-  drop: '#ef4444',
-  reword: '#8b5cf6'
+  drop: '#ef4444'
 }
 
 const ACTION_LABELS: Record<RebaseAction, string> = {
   pick: 'Pick',
   squash: 'Squash',
   fixup: 'Fixup',
-  drop: 'Drop',
-  reword: 'Reword'
+  drop: 'Drop'
 }
 
 export function RebasePanel({ onClose }: Props): JSX.Element {

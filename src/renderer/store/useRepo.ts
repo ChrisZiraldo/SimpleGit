@@ -215,6 +215,7 @@ export const useRepo = create<RepoState>((set) => ({
   setActiveRepo: (repo) =>
     set({
       activeRepo: repo,
+      busy: false,
       status: null,
       branches: [],
       refs: EMPTY_REFS,

@@ -1,6 +1,6 @@
 import type { CheckRollupState, GraphCommit, Ref, RefSet } from '@shared/types'
 import { computeLanes, type GraphRow } from '../graph/computeLanes'
-import { laneColor, laneOrBranchColor } from './colors'
+import { laneOrBranchColor } from './colors'
 
 /** Optional CI status filter for branch tips. Mirrors `MetroFilters.ciStatus`
  * in the store but kept here so layout can be tested without the renderer. */
@@ -437,6 +437,13 @@ export interface MetroLayoutOpts {
   /** Keep only branches whose tip commit is at or after this UNIX-ms cutoff.
    * Pass null/undefined to disable. */
   dateCutoffMs?: number | null
+  /**
+   * Hint: the scroll container's CSS pixel width at zoom=1. When provided,
+   * leftPad is expanded so the lane graph is horizontally centered in the
+   * available panel space. Has no effect for wide/multi-lane repos where the
+   * natural layout already fills or exceeds the viewport.
+   */
+  viewportWidth?: number
 }
 
 /**
@@ -578,9 +585,29 @@ export function computeMetroLayout(
 
   const laneLayout = { rows: remappedRows, width: oldLaneCount }
 
+  // Pre-scan laneCount from remapped rows so we can use it for centering
+  // before defining `lx`. The full scan is repeated below for the export.
+  let preLaneCount = 0
+  for (const row of remappedRows) {
+    if (row.lane + 1 > preLaneCount) preLaneCount = row.lane + 1
+    for (let l = 0; l < row.liveLanes.length; l++) {
+      if (row.liveLanes[l] !== null && l + 1 > preLaneCount) preLaneCount = l + 1
+    }
+  }
+  if (preLaneCount === 0) preLaneCount = 1
+
+  // When a viewportWidth hint is provided (CSS pixels at zoom=1), expand
+  // leftPad so the lane graph is horizontally centered in the viewport.
+  // The LABEL_AREA constant must match the one used in the width formula below.
+  const LABEL_AREA_LOCAL = 280
+  const naturalWidth = leftPad + preLaneCount * colWidth + LABEL_AREA_LOCAL + rightPad
+  const viewHint = opts.viewportWidth ?? 0
+  const centeringPad = viewHint > naturalWidth ? Math.floor((viewHint - naturalWidth) / 2) : 0
+  const effectiveLeftPad = leftPad + centeringPad
+
   // Newest (row 0) at the TOP; lanes arranged left → right.
   const ry = (rowIdx: number): number => topPad + rowIdx * laneHeight + laneHeight / 2
-  const lx = (lane: number): number => leftPad + lane * colWidth + colWidth / 2
+  const lx = (lane: number): number => effectiveLeftPad + lane * colWidth + colWidth / 2
 
   const headRef = currentBranch ? refs.local.find((r) => r.name === currentBranch) : null
   const headHash = headRef?.hash ?? graph[0]?.hash ?? null
@@ -763,8 +790,8 @@ export function computeMetroLayout(
   const headLaneY = headStation ? headStation.x : null
 
   // Label area to the right of lane columns — enough room for commit subjects
-  const LABEL_AREA = 280
-  const width = leftPad + laneCount * colWidth + LABEL_AREA + rightPad
+  const LABEL_AREA = LABEL_AREA_LOCAL
+  const width = effectiveLeftPad + laneCount * colWidth + LABEL_AREA + rightPad
   const height = topPad + cols * laneHeight + bottomPad
 
   const tipLane = new Map<string, number>()
@@ -781,7 +808,7 @@ export function computeMetroLayout(
     laneCount,
     colWidth,
     laneHeight,
-    leftPad,
+    leftPad: effectiveLeftPad,
     rightPad,
     topPad,
     bottomPad,

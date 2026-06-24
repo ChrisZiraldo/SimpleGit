@@ -228,7 +228,7 @@ export function TopBar(): JSX.Element {
   ]
   const selectedBranchLabel = highlightedBranchId
     ? (allBranches.find((b) => b.fullName === highlightedBranchId)?.name ?? 'All Branches')
-    : (branch?.name ?? 'All Branches')
+    : (branch?.current ?? 'All Branches')
 
   return (
     <div

@@ -943,7 +943,7 @@ export function RefsSidebar(): JSX.Element {
                       {remoteName}
                     </div>
                   )}
-                  {remoteRefs.map((r, idx) => {
+                  {remoteRefs.map((r) => {
                     const localName = r.name.includes('/')
                       ? r.name.slice(r.name.indexOf('/') + 1)
                       : r.name

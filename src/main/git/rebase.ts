@@ -36,7 +36,7 @@ export async function startRebase(
     env: {
       ...process.env,
       GIT_SEQUENCE_EDITOR: scriptPath,
-      GIT_EDITOR: 'true' // suppress any editor for reword (message comes from plan)
+      GIT_EDITOR: 'true' // suppress any interactive editor; squash/fixup use concatenated messages
     }
   })
 }

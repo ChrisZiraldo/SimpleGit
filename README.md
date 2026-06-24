@@ -194,7 +194,7 @@ Right-click any commit station and choose **Start rebase from here…** to open 
 
 - All commits between HEAD and the selected commit are listed
 - **Drag and drop** to reorder
-- Per-commit action dropdown: `pick`, `squash`, `fixup`, `reword`, `drop`
+- Per-commit action dropdown: `pick`, `squash`, `fixup`, `drop`
 - **Run Rebase** executes `git rebase -i` via `GIT_SEQUENCE_EDITOR`
 - If conflicts arise, Git Express drops you into the **Conflict Editor**
 

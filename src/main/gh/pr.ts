@@ -10,6 +10,7 @@ import type {
   Result
 } from '@shared/types'
 import { runGh } from './runner'
+import { runGit } from '../git/runner'
 
 // gh pr view --json field shapes. Two possible entries in statusCheckRollup:
 //   - CheckRun (GitHub Checks API)
@@ -527,15 +528,18 @@ export async function rerunLatest(
   cwd: string,
   failedOnly: boolean
 ): Promise<Result<true>> {
-  // Find the most recent run on the current branch
-  const listRes = await runGh(
-    ['run', 'list', '--limit', '1', '--json', 'databaseId'],
-    { cwd }
-  )
+  // Resolve the current branch so we only rerun runs on this branch
+  const branchRes = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd })
+  const branch = branchRes.ok ? branchRes.data.trim() : ''
+
+  const listArgs = ['run', 'list', '--limit', '1', '--json', 'databaseId']
+  if (branch && branch !== 'HEAD') listArgs.push('--branch', branch)
+
+  const listRes = await runGh(listArgs, { cwd })
   if (!listRes.ok) return listRes
   let runs: Array<{ databaseId: number }>
   try {
-    runs = JSON.parse(listRes.data) as Array<{ databaseId: number }>
+    runs = JSON.parse(listRes.data.trim()) as Array<{ databaseId: number }>
   } catch {
     return { ok: false, code: 1, stderr: 'Failed to parse run list' }
   }

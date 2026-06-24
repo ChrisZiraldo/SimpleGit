@@ -88,7 +88,7 @@ export interface ConflictVersions {
   theirs: string
 }
 
-export type RebaseAction = 'pick' | 'squash' | 'fixup' | 'drop' | 'reword'
+export type RebaseAction = 'pick' | 'squash' | 'fixup' | 'drop'
 
 export interface RebasePlanEntry {
   sha: string

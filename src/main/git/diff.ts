@@ -13,12 +13,18 @@ export async function getFileDiff(
   if (!res.ok) return res
 
   if (!staged && res.data.trim() === '') {
-    const untrackedDiff = await runGit(
-      ['diff', '--no-color', '--no-index', '--', '/dev/null', path],
-      { cwd, allowExitCodes: [1] }
-    )
-    if (untrackedDiff.ok) {
-      return { ok: true, data: untrackedDiff.data }
+    // Only use the --no-index fallback if the file is genuinely untracked.
+    // A tracked file with only staged changes also returns an empty unstaged
+    // diff; without this guard the entire file would appear as a new addition.
+    const tracked = await runGit(['ls-files', '--error-unmatch', '--', path], { cwd })
+    if (!tracked.ok) {
+      // File is untracked — show it as a new addition
+      const nul = process.platform === 'win32' ? 'NUL' : '/dev/null'
+      const untrackedDiff = await runGit(
+        ['diff', '--no-color', '--no-index', '--', nul, path],
+        { cwd, allowExitCodes: [1] }
+      )
+      if (untrackedDiff.ok) return { ok: true, data: untrackedDiff.data }
     }
   }
   return res

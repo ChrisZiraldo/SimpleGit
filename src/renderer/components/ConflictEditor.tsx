@@ -9,8 +9,6 @@ interface Props {
   onResolved: () => void
 }
 
-type Side = 'ours' | 'theirs' | 'both' | 'manual'
-
 export function ConflictEditor({ filePath, onClose, onResolved }: Props): JSX.Element {
   const activeRepo = useRepo((s) => s.activeRepo)
   const pushToast = useRepo((s) => s.pushToast)

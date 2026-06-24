@@ -8,7 +8,6 @@ import {
   Clock,
   ExternalLink,
   Plus,
-  X,
   ChevronLeft
 } from 'lucide-react'
 import { useRepo } from '../store/useRepo'

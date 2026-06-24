@@ -35,30 +35,39 @@ export function App(): JSX.Element {
       if (!activeRepo) return
       void (async () => {
         setBusy(true)
-        const res = await window.git.remote.fetch(activeRepo.path)
-        setBusy(false)
-        if (res.ok) { pushToast('success', 'Fetched'); refreshSignal() }
-        else pushToast('error', `Fetch failed: ${res.stderr}`)
+        try {
+          const res = await window.git.remote.fetch(activeRepo.path)
+          if (res.ok) { pushToast('success', 'Fetched'); refreshSignal() }
+          else pushToast('error', `Fetch failed: ${res.stderr}`)
+        } finally {
+          setBusy(false)
+        }
       })()
     },
     onPush: () => {
       if (!activeRepo) return
       void (async () => {
         setBusy(true)
-        const res = await window.git.remote.push(activeRepo.path, {})
-        setBusy(false)
-        if (res.ok) { pushToast('success', 'Pushed'); refreshSignal() }
-        else pushToast('error', `Push failed: ${res.stderr}`)
+        try {
+          const res = await window.git.remote.push(activeRepo.path, {})
+          if (res.ok) { pushToast('success', 'Pushed'); refreshSignal() }
+          else pushToast('error', `Push failed: ${res.stderr}`)
+        } finally {
+          setBusy(false)
+        }
       })()
     },
     onPull: () => {
       if (!activeRepo) return
       void (async () => {
         setBusy(true)
-        const res = await window.git.remote.pull(activeRepo.path, {})
-        setBusy(false)
-        if (res.ok) { pushToast('success', 'Pulled'); refreshSignal() }
-        else pushToast('error', `Pull failed: ${res.stderr}`)
+        try {
+          const res = await window.git.remote.pull(activeRepo.path, {})
+          if (res.ok) { pushToast('success', 'Pulled'); refreshSignal() }
+          else pushToast('error', `Pull failed: ${res.stderr}`)
+        } finally {
+          setBusy(false)
+        }
       })()
     }
   })

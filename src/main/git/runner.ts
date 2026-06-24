@@ -23,8 +23,8 @@ const DRY_RUN_LOG = process.env.SIMPLEGIT_DRY_RUN_LOG
 
 // Read-only git sub-commands — executed even in dry-run mode.
 const READ_ONLY_CMDS = new Set([
-  'log', 'status', 'diff', 'show', 'for-each-ref', 'branch',
-  'remote', 'stash', 'rev-parse', 'ls-files', 'cat-file', 'describe'
+  'log', 'status', 'diff', 'show', 'for-each-ref',
+  'rev-parse', 'ls-files', 'cat-file', 'describe'
 ])
 
 function isReadOnly(args: string[]): boolean {
@@ -35,6 +35,16 @@ function isReadOnly(args: string[]): boolean {
   if (sub === 'stash') {
     const op = args[1] ?? ''
     return op === 'list' || op === 'show'
+  }
+  // `branch` with no args or read-only flags is a read; everything else (e.g. -D, -m) is a write
+  if (sub === 'branch') {
+    const op = args[1] ?? ''
+    return op === '' || op === '--list' || op === '-l' || op === '-a' || op === '-r' || op === '--show-current'
+  }
+  // `remote` with no args or read-only subcommands is a read; add/remove/set-url etc. are writes
+  if (sub === 'remote') {
+    const op = args[1] ?? ''
+    return op === '' || op === '-v' || op === 'show' || op === 'get-url'
   }
   return false
 }
